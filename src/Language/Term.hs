@@ -1,4 +1,4 @@
-module Term
+module Language.Term
   ( Term (..),
     Type,
     Statement (..),
@@ -12,8 +12,8 @@ import Control.Monad.Except (Except, runExceptT, throwError)
 import Control.Monad.Identity (runIdentity)
 import Control.Monad.Reader (ReaderT, asks, local, runReaderT)
 import Data.Bifunctor (bimap)
-import qualified Environment as E
-import Name (FreshNameT, Name, fresh, runFreshNameT)
+import qualified Language.Environment as E
+import Language.Name (FreshNameT, Name, fresh, runFreshNameT)
 import Text.Printf (printf)
 
 data Term

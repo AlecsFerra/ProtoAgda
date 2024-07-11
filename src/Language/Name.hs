@@ -1,9 +1,9 @@
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module Name
+module Language.Name
   ( Name,
     MonadFreshName,
     FreshNameT,
@@ -14,7 +14,7 @@ module Name
   )
 where
 
-import Control.Monad.Except (ExceptT, MonadError, throwError, catchError)
+import Control.Monad.Except (ExceptT, MonadError, catchError, throwError)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader (ReaderT)
 import Control.Monad.State (StateT, evalStateT, get, modify)
@@ -59,7 +59,6 @@ runFreshNameT = flip evalStateT 0 . unFreshNameT
 -- MTL instances
 instance (MonadIO m) => MonadIO (FreshNameT m) where
   liftIO = lift . liftIO
-
 
 -- liftCatch :: Catch e m (a,s) -> Catch e (StateT s m) a
 -- liftCatch catchE m h =

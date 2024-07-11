@@ -1,0 +1,19 @@
+def idType : 𝒰  =
+  Π (T : 𝒰) → Π (_ : T) → T
+
+def id : idType =
+  lambda _. lambda x. x
+
+def idd : ((id U) idType) 
+  = id
+
+
+def composeType : U =
+  Π (A : U) -> Π (B : U) -> Π (C : U) 
+  -> Π (_ : Π (_ : A) -> B) -> Π (_ : Π (_ : B) -> C) -> Π (_ : A) -> C
+
+def compose : composeType =
+  λ _. λ _. λ _. λ f. λ g. λ x . (g (f x))
+
+display compose
+

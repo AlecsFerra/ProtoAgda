@@ -1,11 +1,11 @@
-module Lib (runProgram) where
+module Language.Check (runProgram) where
 
 import Control.Monad.Except (ExceptT, throwError, runExceptT)
 import Control.Monad.Reader (ReaderT, ask, asks, local, runReaderT)
 import Control.Monad.Trans (lift)
-import qualified Environment as E
-import Name (FreshNameT, Name, fresh, runFreshNameT)
-import Term (Term (..), alphaEquivalence, Difference, Program, Statement (..))
+import qualified Language.Environment as E
+import Language.Name (FreshNameT, Name, fresh, runFreshNameT)
+import Language.Term (Term (..), alphaEquivalence, Difference, Program, Statement (..))
 import Data.Foldable (foldlM)
 import Text.Printf (printf)
 import Control.Monad.IO.Class (liftIO)
@@ -19,7 +19,7 @@ data Error
   | CannotApplyTerm Term VType
   | TermApplicationError Value
   | Todo
-  deriving Show
+  deriving (Show)
 
 type Environment = E.Environment Name Value
 
@@ -68,7 +68,7 @@ instance Show Normal where
 data Bound
   = Definition VType Value
   | Bind VType
-  deriving Show
+  deriving (Show)
 
 type EvaluationT m = (ExceptT Error (FreshNameT m))
 type ContextualEvaluationT e m = ReaderT e (EvaluationT m)
@@ -241,23 +241,10 @@ equivalence typ a b = do
   -- Bring the values in notmal form
   a <- readbackNormal $ NAnnotated typ a
   b <- readbackNormal $ NAnnotated typ b
+
   case alphaEquivalence a b of
     Right () -> pure ()
     Left difference -> throwError $ TypeMismatch a b difference
-
--- evalProgram :: [Statement] -> ProgramM (Environment Value)
--- evalProgram = foldlM step E.empty
---   where
---     step env (Define name term) = do
---       term <- runReaderT (eval term) env
---       pure $ E.extend name term env
---     step env (Display term) = do
---       term <- runReaderT (normalize term) env
---       liftIO $ print term
---       pure env
---
-
-
 
 runProgramM :: Program -> EvaluationT IO Context
 runProgramM = foldlM step E.empty
@@ -292,20 +279,3 @@ runProgram program = do
 -- >>> let definition = (Lambda idk (Lambda x (Variable x)))
 -- >>> let typ = Pi t Universe (Pi idk (Variable t) (Variable t))
 -- >>> runProgram [Define id (Annotation definition typ), Display (Variable id)]
-
--- >>> import Name
--- >>> let x = mkName "x"
--- >>> let y = mkName "y"
--- >>> let id = mkName "id"
--- >>> let app = mkName "app"
--- >>> let t = mkName "T"
--- >>> let appDef = (Lambda x (Lambda y (Application (Variable x) (Variable y))))
--- >>> let idDef = Annotation (Lambda x (Variable x)) (Pi t Universe (Variable t))
--- >>> runProgram [Define id idDef, Define app appDef, Display (Application (Variable app) (Variable id))]
--- getLinkDeps: Home module not loaded Environment main-7311c3dc8d7e318622b94ef5b8410fb2ef9e136d
-
--- >>> import Name
--- >>> let x = mkName "x"
--- >>> let s = Lambda x (Application (Variable x) (Variable x))
--- >>> let q = Application s s
--- >>> nooo runProgram [Display q]
