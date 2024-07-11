@@ -25,10 +25,10 @@ source-repository head
 
 library
   exposed-modules:
-      Language.Check
+      Language.Core.Engine
+      Language.Core.Syntax
       Language.Environment
       Language.Name
-      Language.Term
       Parsing.Lexer
       Parsing.Parse
       Parsing.Parser

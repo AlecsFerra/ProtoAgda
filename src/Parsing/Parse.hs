@@ -3,7 +3,7 @@ module Parsing.Parse (parse, ParseError) where
 import qualified Parsing.Lexer as L
 import qualified Parsing.Parser as P
 import Data.Bifunctor (first)
-import Language.Term (Program)
+import Language.Core.Syntax (Program)
 
 data ParseError
   = UnexpectedEOF

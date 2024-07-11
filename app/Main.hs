@@ -1,7 +1,7 @@
 module Main (main) where
 
 import Parsing.Parse (parse)
-import Language.Check (runProgram)
+import Language.Core.Engine (runProgram)
 
 main :: IO ()
 main = do

@@ -1,4 +1,4 @@
-module Language.Term
+module Language.Core.Syntax
   ( Term (..),
     Type,
     Statement (..),

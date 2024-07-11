@@ -1,11 +1,11 @@
-module Language.Check (runProgram) where
+module Language.Core.Engine (runProgram) where
 
 import Control.Monad.Except (ExceptT, throwError, runExceptT)
 import Control.Monad.Reader (ReaderT, ask, asks, local, runReaderT)
 import Control.Monad.Trans (lift)
 import qualified Language.Environment as E
 import Language.Name (FreshNameT, Name, fresh, runFreshNameT)
-import Language.Term (Term (..), alphaEquivalence, Difference, Program, Statement (..))
+import Language.Core.Syntax (Term (..), alphaEquivalence, Difference, Program, Statement (..))
 import Data.Foldable (foldlM)
 import Text.Printf (printf)
 import Control.Monad.IO.Class (liftIO)
@@ -271,11 +271,3 @@ runProgram program = do
     Left error -> putStrLn $ printf "ERROR: %s" (show error)
     Right _ -> pure ()
 
--- >>> import Name
--- >>> let x = mkName "x"
--- >>> let id = mkName "id"
--- >>> let t = mkName "T"
--- >>> let idk = mkName "_"
--- >>> let definition = (Lambda idk (Lambda x (Variable x)))
--- >>> let typ = Pi t Universe (Pi idk (Variable t) (Variable t))
--- >>> runProgram [Define id (Annotation definition typ), Display (Variable id)]

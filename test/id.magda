@@ -15,5 +15,13 @@ def composeType : U =
 def compose : composeType =
   λ _. λ _. λ _. λ f. λ g. λ x . (g (f x))
 
-display compose
+def Nat : U =
+  Pi (X : U) -> Pi (_ : Pi (_ : X) -> X) -> Pi (_ : X) -> X
 
+def one : Nat =
+  lambda _. lambda f . lambda x . x
+
+def succ : Pi (_: Nat) -> Nat =
+  U
+
+display one
