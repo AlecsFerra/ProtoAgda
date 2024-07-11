@@ -29,6 +29,7 @@ library
       Language.Core.Syntax
       Language.Environment
       Language.Name
+      Language.Surface.Syntax
       Parsing.Lexer
       Parsing.Parse
       Parsing.Parser

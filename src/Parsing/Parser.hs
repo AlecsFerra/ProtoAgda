@@ -10,7 +10,7 @@ module Parsing.Parser (parseProgram, ParsingError (..)) where
 import Control.Applicative ((<|>), many)
 import Control.Monad (void)
 import Data.Functor (($>))
-import Language.Name (Name, mkName)
+import Language.Name (mkName, discard, Name)
 import Language.Core.Syntax (Term (..), Statement (..), Program)
 import Parsing.Lexer (Token (..))
 import Parsing.ParserM (FromStream, ParserM, fromStream, satisfies, pluck, runParser)
@@ -29,9 +29,9 @@ instance FromStream [Token] ParsingError where
 is :: Token -> Parser ()
 is = void . satisfies . (==)
 
-name :: Parser Name
+name :: Parser String
 name = pluck $ \case
-  (TName s) -> Just $ mkName s
+  (TName s) -> Just s
   _ -> Nothing
 
 parseProgram :: [Token] -> Either ParsingError Program
@@ -48,7 +48,7 @@ statement = definition <|> display
   where
     definition = do
       is TDef
-      id <- name
+      id <- fmap mkName name
       is TColon
       typ <- expression
       is TEquals
@@ -56,6 +56,11 @@ statement = definition <|> display
       pure $ Define id $ Annotation body typ
 
     display = fmap Display $ is TDisplay *> expression
+
+
+mkDiscardableName :: String -> Name
+mkDiscardableName "_" = discard
+mkDiscardableName name = mkName name
 
 expression :: Parser Term
 expression =
@@ -66,11 +71,14 @@ expression =
     <|> annotation
     <|> universe
   where
-    variable = fmap Variable name
+    variable = do 
+      id <- fmap mkDiscardableName name
+      pure $ Variable id
+
 
     lambda = do
       is TLambda
-      argName <- name
+      argName <- fmap mkName name
       is TDot
       body <- expression
       pure $ Lambda argName body
@@ -78,7 +86,7 @@ expression =
     pi = do
       is TPi
       is TOpenParen
-      argName <- name
+      argName <- fmap mkName name
       is TColon
       typ <- expression
       is TCloseParen

@@ -11,6 +11,7 @@ module Language.Name
     fresh,
     mkName,
     freshHint,
+    discard,
   )
 where
 
@@ -23,17 +24,29 @@ import Text.Printf (printf)
 
 data Name
   = UserDefined String
-  | MaachineGenerated Int
-  | MaachineGeneratedHinted Name Int
-  deriving (Eq)
+  | MachineGenerated Int
+  | MachineGeneratedHinted Name Int
+  | Discard
+
+instance Eq Name where
+  (UserDefined l) == (UserDefined r) = l == r
+  (MachineGenerated l) == (MachineGenerated r) = l == r
+  (MachineGeneratedHinted ln li) == (MachineGeneratedHinted rn ri) =
+    ln == rn && li == ri
+  Discard == Discard = False
+  _ == _ = False
 
 mkName :: String -> Name
 mkName = UserDefined
 
+discard :: Name
+discard = Discard
+
 instance Show Name where
   show (UserDefined n) = n
-  show (MaachineGenerated id) = printf "mg$%d" id
-  show (MaachineGeneratedHinted hint id) = printf "mg(%s)$%d" (show hint) id
+  show (MachineGenerated id) = printf "mg$%d" id
+  show (MachineGeneratedHinted hint id) = printf "mg(%s)$%d" (show hint) id
+  show Discard = "_"
 
 class (Monad m) => MonadFreshName m where
   fresh :: m Name
@@ -49,9 +62,9 @@ freshId = FreshNameT $ do
   pure id
 
 instance (Monad m) => MonadFreshName (FreshNameT m) where
-  fresh = MaachineGenerated <$> freshId
+  fresh = MachineGenerated <$> freshId
 
-  freshHint hint = MaachineGeneratedHinted hint <$> freshId
+  freshHint hint = MachineGeneratedHinted hint <$> freshId
 
 runFreshNameT :: (Monad m) => FreshNameT m a -> m a
 runFreshNameT = flip evalStateT 0 . unFreshNameT

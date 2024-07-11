@@ -32,7 +32,7 @@ instance Show Term where
   show (Pi name typ body) = printf "Π (%s : %s) -> %s" (show name) (show typ) (show body)
   show (Application lhs rhs) = printf "(%s %s)" (show lhs) (show rhs)
   show (Annotation term typ) = printf "%s : %s" (show term) (show typ)
-  show Universe = "Type"
+  show Universe = "𝒰"
 
 data Statement
   = Define Name Term
