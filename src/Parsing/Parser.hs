@@ -81,21 +81,21 @@ nonOperator = lambda <|> pi
   where
     lambda = do
       is TLambda
-      argName <- name
+      argNames <- some name
       is TDot
       body <- term
-      pure $ Lambda argName body
+      pure $ Lambda argNames body
 
     pi = do
       is TPi
       is TOpenParen
-      argName <- name
+      argNames <- some name
       is TColon
       typ <- term
       is TCloseParen
       is TArrow
       body <- term        
-      pure $ Pi argName typ body
+      pure $ Pi argNames typ body
 
 -- From the lowest to the highest precedence
 binaryOperator :: Parser Term

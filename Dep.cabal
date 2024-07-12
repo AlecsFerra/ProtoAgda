@@ -28,6 +28,7 @@ library
       Language.Core.Engine
       Language.Core.Name
       Language.Core.Syntax
+      Language.Core.Value
       Language.Environment
       Language.Surface.Compiler
       Language.Surface.Syntax

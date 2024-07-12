@@ -7,10 +7,10 @@ type Type = Term
 data Term
   = -- variables
     Variable Name
-  | -- λ x . t
-    Lambda Name Term
-  | -- Π (x : t₁) -> t₂
-    Pi Name Type Term
+  | -- λ x₁ ... xₙ. t
+    Lambda [Name] Term
+  | -- Π (x₁ ... xₙ : t₁) -> t₂
+    Pi [Name] Type Term
   | -- t₁ -> t₂
     Arrow Type Term
   | -- (t₁ t₂)

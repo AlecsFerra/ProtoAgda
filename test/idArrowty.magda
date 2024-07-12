@@ -1,5 +1,14 @@
 
-def compose : Pi (A : U) -> Pi (B : U) -> Pi (C : U) -> (A -> B) -> (B -> C) -> (A -> C)
-  = λ _. λ _. λ _. λ f. λ g. λ a. g (f a)
+def idType : U = Π (A : U) -> A -> A
+def id : idType = λ _ a. a
+
+def idTwo : idType
+  = id idType id
+
+def idThtree : id U idType
+  = id idType id
+
+def compose : Π (A B C : U) -> (A -> B) -> (B -> C) -> (A -> C)
+  =  λ _ _ _ f g a. g (f a)
 
 display compose

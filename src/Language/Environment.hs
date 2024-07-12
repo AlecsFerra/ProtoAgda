@@ -1,22 +1,28 @@
-module Language.Environment (Environment, empty, lookup, extend, on) where
+module Language.Environment
+  ( Environment,
+    empty,
+    lookup,
+    extend,
+    mapWithKey,
+  )
+where
 
-import Data.Foldable (find)
+import qualified Data.Map as M
 import Prelude hiding (lookup)
 
-newtype Environment k v = Environment {unEnvironment :: [(k, v)]}
+-- Names are unique so we don't have to keep track of the scope length,
+-- this makes a lot of things easier for example the scoping of types
+newtype Environment k v = Environment {unEnvironment :: M.Map k v}
   deriving (Show)
 
-on :: ((k1, v1) -> (k2, v2)) -> Environment k1 v1 -> Environment k2 v2
-on f = Environment . fmap f . unEnvironment
+mapWithKey :: (k -> v1 -> v2) -> Environment k v1 -> Environment k v2
+mapWithKey f = Environment . M.mapWithKey f . unEnvironment
 
 empty :: Environment k v
-empty = Environment []
+empty = Environment M.empty
 
-lookup :: (Eq k) => k -> Environment k v -> Maybe v
-lookup k =
-  fmap snd
-    . find ((k ==) . fst)
-    . unEnvironment
+lookup :: (Ord k) => k -> Environment k v -> Maybe v
+lookup k = M.lookup k . unEnvironment
 
-extend :: k -> v -> Environment k v -> Environment k v
-extend k v = Environment . ((k, v) :) . unEnvironment
+extend :: (Ord k) => k -> v -> Environment k v -> Environment k v
+extend k v = Environment . M.insert k v . unEnvironment

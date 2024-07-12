@@ -13,6 +13,7 @@ where
 import Language.Core.Name
 import Language.Core.Syntax
 import qualified Language.Environment as E
+import Text.Printf (printf)
 
 type Environment = E.Environment Name Value
 
@@ -27,11 +28,25 @@ data Value
   | -- We need to keep track of the type of neutral term
     VNeutral VType Neutral
 
+instance Show Value where
+  show (VPi argType (Closure _ (Discarded _) body)) =
+    printf "%s → %s" (show argType) (show body)
+  show (VPi argType (Closure _ argName body)) =
+    printf "Π (%s : %s) -> %s" (show argName) (show argType) (show body)
+  show (VLambda (Closure _ argName body)) =
+    printf "λ %s. %s" (show argName) (show body)
+  show VUniverse = "𝒰"
+  show (VNeutral _ term) = show term
+
 data Closure = Closure Environment Name Term
+  deriving (Show)
 
 data Normal
   = -- Normal forms are values annotated with a type
     NAnnotated VType Value
+
+instance Show Normal where
+  show (NAnnotated _ term) = show term
 
 -- Neutral expressions are expression that are temporarly stuck
 data Neutral
@@ -43,19 +58,11 @@ data Neutral
   | -- A variable that is nout bound in this context
     NVariable Name
 
+instance Show Neutral where
+  show (NApplication fun arg) = printf "(%s %s)" (show fun) (show arg)
+  show (NVariable name) = show name
+
 data Bound
   = Definition VType Value
   | Bind VType
-
-
--- How a specific name should be displayed
--- 
-type NameStyle = E.Environment Name String
-
-prettyPrint :: (MonadState )
-
-instance Show Value where
-  show v = showAux [] v
-
-  where
-    showAux
+  deriving (Show)

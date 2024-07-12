@@ -4,7 +4,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 module Language.Core.Name
-  ( Name,
+  ( Name (..),
     MonadName(..),
     NameT,
     runNameT,
@@ -22,10 +22,10 @@ data Name
   = Name Int
   | AnnotatedName String Int
   | Discarded Int
-  deriving (Eq)
+  deriving (Eq, Ord)
 
 instance Show Name where
-  show (Name id) = printf "$%n" id
+  show (Name id) = printf "$%d" id
   show (AnnotatedName ann id) = printf "%s$%d" ann id
   show (Discarded id) = printf "discarded$%d" id
 

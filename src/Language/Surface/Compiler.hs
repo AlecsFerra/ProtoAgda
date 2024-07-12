@@ -22,17 +22,19 @@ compileTerm (S.Variable sName) = do
     -- The variable is unbound but we will let the typechecker figure it out
     -- so we generate a newname
     Nothing -> C.Variable <$> fresh
-compileTerm (S.Lambda sArgName sBody) = do
-  cArgName <- mkName sArgName
-  let bindName = E.extend sArgName cArgName
-  cBody <- local bindName $ compileTerm sBody
-  pure $ C.Lambda cArgName cBody
-compileTerm (S.Pi sArgName sType sBody) = do
+compileTerm (S.Lambda sArgNames sBody) = do
+  cArgNames <- mapM mkName sArgNames
+  let names = zip sArgNames cArgNames
+  let bindNames = flip (foldr $ uncurry E.extend) names
+  cBody <- local bindNames $ compileTerm sBody
+  pure $ foldr C.Lambda cBody cArgNames
+compileTerm (S.Pi sArgNames sType sBody) = do
   cType <- compileTerm sType
-  cArgName <- mkName sArgName
-  let bindName = E.extend sArgName cArgName
-  cBody <- local bindName $ compileTerm sBody
-  pure $ C.Pi cArgName cType cBody
+  cArgNames <- mapM mkName sArgNames
+  let names = zip sArgNames cArgNames
+  let bindNames = flip (foldr $ uncurry E.extend) names
+  cBody <- local bindNames $ compileTerm sBody
+  pure $ foldr (`C.Pi` cType) cBody cArgNames
 compileTerm (S.Arrow sType sBody) = do
   cType <- compileTerm sType
   -- We can't refer to the discarded name so who cares about adding it to the
@@ -71,5 +73,4 @@ compile program = reverse . snd <$> foldM compileAux (E.empty, []) program
     compileAux (env, rest) sStmt = do
       (env, cStmt) <- compileStatement (env, sStmt)
       return (env, cStmt : rest)
-
 

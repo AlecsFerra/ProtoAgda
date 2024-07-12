@@ -3,12 +3,11 @@
 module Language.Core.Engine (runProgram, Value) where
 
 import Control.Monad.Error.Class (MonadError)
-import Control.Monad.Except (liftEither, runExceptT, throwError)
+import Control.Monad.Except (runExceptT, throwError)
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import Control.Monad.Identity (runIdentity)
-import Control.Monad.Reader (MonadReader, ask, asks, local, runReaderT, lift, withReaderT)
+import Control.Monad.Reader (MonadReader, ask, asks, local, runReaderT)
 import Data.Foldable (foldlM)
-import Language.Core.Name (MonadName, Name, fresh)
+import Language.Core.Name (MonadName, Name, freshHint)
 import Language.Core.Syntax
   ( Difference,
     Program,
@@ -17,7 +16,7 @@ import Language.Core.Syntax
     alphaEquivalence,
   )
 import Language.Core.Value
-  ( Bound (Bind, Definition),
+  ( Bound (..),
     Closure (..),
     Context,
     Environment,
@@ -37,12 +36,15 @@ data Error
   | ReadBackTypeError VType Value
   | CannotApplyTerm Term VType
   | TermApplicationError Value
-  | Todo
+  deriving (Show)
 
 applyClosure :: (MonadError Error m) => Closure -> Value -> m Value
 applyClosure (Closure env argName body) arg = do
   let env' = E.extend argName arg env
   runReaderT (eval body) env'
+
+argName :: Closure -> Name
+argName (Closure _ argName _) = argName
 
 apply :: (MonadError Error m) => Value -> Value -> m Value
 -- If it is a lambda-closure we simply apply the body in the closure context
@@ -89,13 +91,13 @@ readbackNormal ::
   (MonadReader Context m, MonadError Error m, MonadName m) =>
   Normal ->
   m Term
-readbackNormal (NAnnotated (VPi argType retTyConstructor) f) = do
+readbackNormal (NAnnotated (VPi argType closure) f) = do
   -- Constuct the neutral version of the argument
-  argName <- fresh
+  argName <- freshHint $ argName closure
   let neutralArg = VNeutral argType $ NVariable argName
   -- Apply the argument to the type constructor and to the function to obtain
   -- the return value and its type
-  retType <- applyClosure retTyConstructor neutralArg
+  retType <- applyClosure closure neutralArg
   ret <- apply f neutralArg
   -- Now we can readback the return to read the body of the lambda
   let bindArgument = E.extend argName $ Bind argType
@@ -104,7 +106,7 @@ readbackNormal (NAnnotated (VPi argType retTyConstructor) f) = do
   pure $ Lambda argName body
 readbackNormal (NAnnotated VUniverse (VPi argType closure)) = do
   -- Constuct the neutral value of the argument
-  argName <- fresh
+  argName <- freshHint $ argName closure
   let argValue = VNeutral argType $ NVariable argName
   -- Apply the argument to the closure, since it's the result of a Pi, it's a
   -- type so it has type Universe so we can annotate it directly.
@@ -132,18 +134,18 @@ readbackNeutral (NApplication fun arg) = do
   pure $ Application fun arg
 
 asEnvironment :: Context -> Environment
-asEnvironment = E.on convert
+asEnvironment = E.mapWithKey convert
   where
     -- We don't need the type of a value during evaluation
-    convert (name, Definition _ value) = (name, value)
+    convert _ (Definition _ value) = value
     -- If it's a type binding we transform it in a stuck variable, since
     -- obviusly we dont' have a value
-    convert (name, Bind typ) = (name, VNeutral typ (NVariable name))
+    convert name (Bind typ) = VNeutral typ (NVariable name)
 
 evalInContext :: (MonadReader Context m, MonadError Error m) => Term -> m Value
 evalInContext t = do
-  ctx <- ask
-  liftEither $ runIdentity $ runExceptT (runReaderT (eval t) $ asEnvironment ctx)
+  env <- asks asEnvironment
+  runReaderT (eval t) env
 
 -- Synthetize a type (In Term form since it's being elaborated) for `Term` and
 -- elaborate it
