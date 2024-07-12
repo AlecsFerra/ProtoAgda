@@ -6,8 +6,9 @@ import Language.Surface.Compiler (compile)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Language.Core.Name (MonadName, runNameT)
 
-pipeline :: (MonadIO m, MonadName m) => String -> m ()
-pipeline src = do
+runM :: (MonadIO m, MonadName m) => String -> m ()
+runM path = do
+  src <- liftIO $ readFile path
   let parsed = parse src
   case parsed of
     Left error -> do 
@@ -16,7 +17,9 @@ pipeline src = do
       compiled <- compile parsed
       runProgram compiled
 
+run :: String -> IO ()
+run path = runNameT $ runM path
+
 main :: IO ()
 main = do
-  src <- readFile "test/idArrowty.magda"
-  runNameT $ pipeline src
+  run "./test/exampleDiscard.magda"

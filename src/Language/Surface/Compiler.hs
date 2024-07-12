@@ -2,38 +2,52 @@
 
 module Language.Surface.Compiler (compile) where
 
+import Control.Monad (foldM)
 import Control.Monad.Reader (MonadReader, asks, local, runReaderT)
-import Language.Core.Name (MonadName, fresh, mkDiscarded, mkName)
+import Data.Foldable (foldl')
+import Language.Core.Name (MonadName, mkDiscarded, mkName)
 import qualified Language.Core.Name as C
 import qualified Language.Core.Syntax as C
-import qualified Language.Environment as E
 import qualified Language.Surface.Syntax as S
-import Control.Monad (foldM)
 
--- Association between surface names and core names needed because variables
--- shouldn't geenrate fresh names but reuse the bound ones
-type Environment = E.Environment S.Name C.Name
+type NameStack = [(S.Name, C.Name)]
 
-compileTerm :: (MonadReader Environment m, MonadName m) => S.Term -> m C.Term
+extend :: S.Name -> C.Name -> NameStack -> NameStack
+extend s c = ((s, c) :)
+
+makeArgName :: (MonadName m) => String -> m C.Name
+makeArgName "_" = mkDiscarded
+makeArgName name = mkName name
+
+bindNames :: (MonadName m) => [S.Name] -> m (NameStack -> NameStack, [C.Name])
+bindNames sArgNames = do
+  cArgNames <- mapM makeArgName sArgNames
+  let names = zip sArgNames cArgNames
+  -- We bind the names from the first to the last
+  let bindNames stack = foldl' (flip $ uncurry extend) stack names
+  pure (bindNames, cArgNames)
+
+compileTerm :: (MonadReader NameStack m, MonadName m) => S.Term -> m C.Term
+compileTerm (S.Variable "_") = C.Variable <$> mkDiscarded
 compileTerm (S.Variable sName) = do
-  mCName <- asks $ E.lookup sName
+  mCName <- asks $ lookup sName
   case mCName of
     Just cName -> pure $ C.Variable cName
     -- The variable is unbound but we will let the typechecker figure it out
     -- so we generate a newname
-    Nothing -> C.Variable <$> fresh
+    Nothing -> C.Variable <$> mkName sName
 compileTerm (S.Lambda sArgNames sBody) = do
-  cArgNames <- mapM mkName sArgNames
-  let names = zip sArgNames cArgNames
-  let bindNames = flip (foldr $ uncurry E.extend) names
+  (bindNames, cArgNames) <- bindNames sArgNames
   cBody <- local bindNames $ compileTerm sBody
+  -- When we build up the term we start from the last one since we are building
+  -- outwards
   pure $ foldr C.Lambda cBody cArgNames
 compileTerm (S.Pi sArgNames sType sBody) = do
   cType <- compileTerm sType
-  cArgNames <- mapM mkName sArgNames
-  let names = zip sArgNames cArgNames
-  let bindNames = flip (foldr $ uncurry E.extend) names
+  (bindNames, cArgNames) <- bindNames sArgNames
   cBody <- local bindNames $ compileTerm sBody
+  -- When we build up the term we start from the last one since we are building
+  -- outwards
   pure $ foldr (`C.Pi` cType) cBody cArgNames
 compileTerm (S.Arrow sType sBody) = do
   cType <- compileTerm sType
@@ -54,23 +68,22 @@ compileTerm S.Universe = pure C.Universe
 
 compileStatement ::
   (MonadName m) =>
-  (Environment, S.Statement) ->
-  m (Environment, C.Statement)
+  (NameStack, S.Statement) ->
+  m (NameStack, C.Statement)
 compileStatement (env, S.Define sName sType sTerm) = do
-  cName <- mkName sName
+  cName <- makeArgName sName
   cTerm <- runReaderT (compileTerm sTerm) env
   cType <- runReaderT (compileTerm sType) env
   let completeTerm = C.Define cName $ C.Annotation cTerm cType
-  let env' = E.extend sName cName env
+  let env' = extend sName cName env
   pure (env', completeTerm)
 compileStatement (env, S.Display sTerm) = do
   cTerm <- runReaderT (compileTerm sTerm) env
   pure (env, C.Display cTerm)
 
-compile :: MonadName m => S.Program -> m C.Program
-compile program = reverse . snd <$> foldM compileAux (E.empty, []) program
+compile :: (MonadName m) => S.Program -> m C.Program
+compile program = reverse . snd <$> foldM compileAux ([], []) program
   where
     compileAux (env, rest) sStmt = do
       (env, cStmt) <- compileStatement (env, sStmt)
       return (env, cStmt : rest)
-

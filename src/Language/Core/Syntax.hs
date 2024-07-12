@@ -12,7 +12,7 @@ import Control.Monad.Except (Except, runExceptT, throwError)
 import Control.Monad.Identity (runIdentity)
 import Control.Monad.Reader (ReaderT, asks, local, runReaderT)
 import Data.Bifunctor (bimap)
-import qualified Language.Environment as E
+import qualified Language.Core.Environment as E
 import Language.Core.Name (NameT, Name (..), fresh, runNameT)
 import Text.Printf (printf)
 

@@ -21,7 +21,5 @@ def Nat : U =
 def one : Nat =
   lambda _. lambda f . lambda x . x
 
-def succ : Pi (_: Nat) -> Nat =
-  U
 
 display one

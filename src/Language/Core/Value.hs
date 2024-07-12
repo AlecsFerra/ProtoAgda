@@ -10,9 +10,9 @@ module Language.Core.Value
   )
 where
 
-import Language.Core.Name
-import Language.Core.Syntax
-import qualified Language.Environment as E
+import qualified Language.Core.Environment as E
+import Language.Core.Name (Name (..))
+import Language.Core.Syntax (Term)
 import Text.Printf (printf)
 
 type Environment = E.Environment Name Value

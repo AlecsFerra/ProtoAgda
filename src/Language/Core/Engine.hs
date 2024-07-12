@@ -25,7 +25,7 @@ import Language.Core.Value
     VType,
     Value (..),
   )
-import qualified Language.Environment as E
+import qualified Language.Core.Environment as E
 import Text.Printf (printf)
 
 data Error

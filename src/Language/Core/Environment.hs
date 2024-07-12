@@ -1,4 +1,4 @@
-module Language.Environment
+module Language.Core.Environment
   ( Environment,
     empty,
     lookup,
