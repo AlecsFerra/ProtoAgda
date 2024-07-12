@@ -1,0 +1,5 @@
+
+def compose : Pi (A : U) -> Pi (B : U) -> Pi (C : U) -> (A -> B) -> (B -> C) -> (A -> C)
+  = λ _. λ _. λ _. λ f. λ g. λ a. g (f a)
+
+display compose

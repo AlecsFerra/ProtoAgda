@@ -26,9 +26,10 @@ source-repository head
 library
   exposed-modules:
       Language.Core.Engine
+      Language.Core.Name
       Language.Core.Syntax
       Language.Environment
-      Language.Name
+      Language.Surface.Compiler
       Language.Surface.Syntax
       Parsing.Lexer
       Parsing.Parse

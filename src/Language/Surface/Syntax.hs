@@ -1,21 +1,28 @@
-module Language.Surface.Syntax (Term) where
+module Language.Surface.Syntax (Term (..), Statement (..), Program, Name) where
 
-import Language.Name (Name)
+type Name = String
 
 type Type = Term
 
 data Term
   = -- variables
     Variable Name
-    -- λ x . r
-  | Lambda Name Term
-    -- Π (x : t₁) -> t₂  (Maybe it's set)
-    -- t₁ -> t₂          (Maybe it's not set)
-  | Pi (Maybe Name) Type Term
-    -- (t₁ t₂)
-  | Application Term Term
-    -- (t₁ : t₂)
-  | Annotation Term Type
-    -- 𝒰
-  | Universe
+  | -- λ x . t
+    Lambda Name Term
+  | -- Π (x : t₁) -> t₂
+    Pi Name Type Term
+  | -- t₁ -> t₂
+    Arrow Type Term
+  | -- (t₁ t₂)
+    Application Term Term
+  | -- (t₁ : t₂)
+    Annotation Term Type
+  | -- 𝒰
+    Universe
+
+data Statement
+  = Define Name Type Term
+  | Display Term
+
+type Program = [Statement]
 

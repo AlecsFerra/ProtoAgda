@@ -1,14 +1,33 @@
-module Language.Core.Engine (runProgram) where
+{-# LANGUAGE FlexibleContexts #-}
 
-import Control.Monad.Except (ExceptT, throwError, runExceptT)
-import Control.Monad.Reader (ReaderT, ask, asks, local, runReaderT)
-import Control.Monad.Trans (lift)
-import qualified Language.Environment as E
-import Language.Name (FreshNameT, Name, fresh, runFreshNameT)
-import Language.Core.Syntax (Term (..), alphaEquivalence, Difference, Program, Statement (..))
+module Language.Core.Engine (runProgram, Value) where
+
+import Control.Monad.Error.Class (MonadError)
+import Control.Monad.Except (liftEither, runExceptT, throwError)
+import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.Identity (runIdentity)
+import Control.Monad.Reader (MonadReader, ask, asks, local, runReaderT, lift, withReaderT)
 import Data.Foldable (foldlM)
+import Language.Core.Name (MonadName, Name, fresh)
+import Language.Core.Syntax
+  ( Difference,
+    Program,
+    Statement (..),
+    Term (..),
+    alphaEquivalence,
+  )
+import Language.Core.Value
+  ( Bound (Bind, Definition),
+    Closure (..),
+    Context,
+    Environment,
+    Neutral (..),
+    Normal (..),
+    VType,
+    Value (..),
+  )
+import qualified Language.Environment as E
 import Text.Printf (printf)
-import Control.Monad.IO.Class (liftIO)
 
 data Error
   = UndefinedVariable Name
@@ -19,66 +38,13 @@ data Error
   | CannotApplyTerm Term VType
   | TermApplicationError Value
   | Todo
-  deriving (Show)
 
-type Environment = E.Environment Name Value
-
-type Context = E.Environment Name Bound
-
-data Closure = Closure Environment Name Term
-
-type VType = Value
-
-data Value
-  = VPi VType Closure
-  | VLambda Closure
-  | VUniverse
-  | -- We need to keep track of the type of neutral term
-    VNeutral VType Neutral
-
-instance Show Value where
-  show (VPi argType (Closure _ argName body)) =
-    printf "Π (%s : %s) -> %s" (show argName) (show argType) (show body)
-  show (VLambda (Closure _ argName body)) =
-    printf "λ %s. %s" (show argName) (show body)
-  show VUniverse = "𝒰"
-  show (VNeutral typ term) = printf "%s : %s" (show term) (show typ)
-
--- Neutral expressions are expression that are temporarly stuck
-data Neutral
-  = -- A function application is stuck if we don't
-    -- know the function that we are applying, the
-    -- argument must be in normal form, meaning we
-    -- can't reduce it further
-    NApplication Neutral Normal
-  | -- A variable that is nout bound in this context
-    NVariable Name
-
-instance Show Neutral where
-  show (NApplication fun arg) = printf "(%s %s)" (show fun) (show arg)
-  show (NVariable name) = show name
-
-data Normal
-  = -- Normal forms are values annotated with a type
-    NAnnotated VType Value
-
-instance Show Normal where
-  show (NAnnotated typ term) = printf "%s : %s" (show term) (show typ)
-
-data Bound
-  = Definition VType Value
-  | Bind VType
-  deriving (Show)
-
-type EvaluationT m = (ExceptT Error (FreshNameT m))
-type ContextualEvaluationT e m = ReaderT e (EvaluationT m)
-
-applyClosure :: (Monad m) => Closure -> Value -> ContextualEvaluationT e m Value
+applyClosure :: (MonadError Error m) => Closure -> Value -> m Value
 applyClosure (Closure env argName body) arg = do
   let env' = E.extend argName arg env
-  lift $ runReaderT (eval body) env'
+  runReaderT (eval body) env'
 
-apply :: (Monad m) => Value -> Value -> ContextualEvaluationT e m Value
+apply :: (MonadError Error m) => Value -> Value -> m Value
 -- If it is a lambda-closure we simply apply the body in the closure context
 apply (VLambda closure) arg = applyClosure closure arg
 -- If it is a pi-closure that is neutral we canno't evaluate the function
@@ -95,7 +61,7 @@ apply (VNeutral (VPi argType retTyConstructor) neutralFun) arg = do
   pure $ VNeutral resultType neutralApplication
 apply fun _ = throwError $ TermApplicationError fun
 
-eval :: (Monad m) => Term -> ContextualEvaluationT Environment m Value
+eval :: (MonadReader Environment m, MonadError Error m) => Term -> m Value
 eval (Annotation term _) = eval term
 eval Universe = pure VUniverse
 eval (Pi param typ body) = do
@@ -119,7 +85,10 @@ eval (Variable name) = do
     _ -> throwError $ UndefinedVariable name
 
 -- Reading back transform a value in it's normal form
-readbackNormal :: (Monad m) => Normal -> ContextualEvaluationT Context m Term
+readbackNormal ::
+  (MonadReader Context m, MonadError Error m, MonadName m) =>
+  Normal ->
+  m Term
 readbackNormal (NAnnotated (VPi argType retTyConstructor) f) = do
   -- Constuct the neutral version of the argument
   argName <- fresh
@@ -152,7 +121,10 @@ readbackNormal (NAnnotated VUniverse VUniverse) = pure Universe
 readbackNormal (NAnnotated _ (VNeutral _ n)) = readbackNeutral n
 readbackNormal (NAnnotated typ value) = throwError $ ReadBackTypeError typ value
 
-readbackNeutral :: (Monad m) => Neutral -> ContextualEvaluationT Context m Term
+readbackNeutral ::
+  (MonadReader Context m, MonadError Error m, MonadName m) =>
+  Neutral ->
+  m Term
 readbackNeutral (NVariable name) = pure $ Variable name
 readbackNeutral (NApplication fun arg) = do
   fun <- readbackNeutral fun
@@ -164,18 +136,21 @@ asEnvironment = E.on convert
   where
     -- We don't need the type of a value during evaluation
     convert (name, Definition _ value) = (name, value)
-    -- If it's a type binding we transform it in a stuck variable, since 
+    -- If it's a type binding we transform it in a stuck variable, since
     -- obviusly we dont' have a value
     convert (name, Bind typ) = (name, VNeutral typ (NVariable name))
 
-evalInContext :: (Monad m) => Term -> ContextualEvaluationT Context m Value
+evalInContext :: (MonadReader Context m, MonadError Error m) => Term -> m Value
 evalInContext t = do
   ctx <- ask
-  lift $ runReaderT (eval t) $ asEnvironment ctx
+  liftEither $ runIdentity $ runExceptT (runReaderT (eval t) $ asEnvironment ctx)
 
--- Synthetize a type (In Term form since it's being elaborated) for `Term` and 
+-- Synthetize a type (In Term form since it's being elaborated) for `Term` and
 -- elaborate it
-synthetize :: (Monad m) => Term -> ContextualEvaluationT Context m (Term, Term)
+synthetize ::
+  (MonadError Error m, MonadReader Context m, MonadName m) =>
+  Term ->
+  m (Term, Term)
 synthetize (Annotation term typ) = do
   typ <- check typ VUniverse
   typ' <- evalInContext typ
@@ -216,7 +191,11 @@ synthetize (Variable name) = do
 synthetize t = throwError $ CannotSynthetizeTypeFor t
 
 -- Check if `Term` has type `Type` returning the elaborate version
-check :: (Monad m) => Term -> VType -> ContextualEvaluationT Context m Term
+check ::
+  (MonadReader Context m, MonadError Error m, MonadName m) =>
+  Term ->
+  VType ->
+  m Term
 check (Lambda argName body) (VPi argType closure) = do
   -- (λ argName . body)     (Π (_ : argType) closure)
   -- Neutral function argument and compute the return type
@@ -235,21 +214,23 @@ check term typ = do
   equivalence VUniverse typ synthetizedType
   pure term
 
-
-equivalence :: (Monad m) => VType -> Value -> Value -> ContextualEvaluationT Context m ()
+equivalence ::
+  (MonadReader Context m, MonadError Error m, MonadName m) =>
+  VType ->
+  Value ->
+  Value ->
+  m ()
 equivalence typ a b = do
   -- Bring the values in notmal form
   a <- readbackNormal $ NAnnotated typ a
   b <- readbackNormal $ NAnnotated typ b
-
   case alphaEquivalence a b of
     Right () -> pure ()
     Left difference -> throwError $ TypeMismatch a b difference
 
-runProgramM :: Program -> EvaluationT IO Context
+runProgramM :: (MonadName m, MonadError Error m, MonadIO m) => Program -> m Context
 runProgramM = foldlM step E.empty
   where
-    step :: Context -> Statement -> EvaluationT IO Context
     step ctx (Define name term) = do
       (typ, term) <- runReaderT (synthetize term) ctx
       let env = asEnvironment ctx
@@ -264,10 +245,9 @@ runProgramM = foldlM step E.empty
       liftIO $ putStrLn $ printf "%s : %s" (show term) (show typ)
       pure ctx
 
-runProgram :: Program -> IO ()
+runProgram :: (MonadName m, MonadIO m) => Program -> m ()
 runProgram program = do
-  result <- runFreshNameT $ runExceptT $ runProgramM program
+  result <- runExceptT $ runProgramM program
   case result of
-    Left error -> putStrLn $ printf "ERROR: %s" (show error)
+    Left error -> liftIO $ putStrLn $ printf "ERROR: %s" (show error)
     Right _ -> pure ()
-

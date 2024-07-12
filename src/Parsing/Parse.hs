@@ -3,7 +3,7 @@ module Parsing.Parse (parse, ParseError) where
 import qualified Parsing.Lexer as L
 import qualified Parsing.Parser as P
 import Data.Bifunctor (first)
-import Language.Core.Syntax (Program)
+import Language.Surface.Syntax (Program)
 
 data ParseError
   = UnexpectedEOF
@@ -16,7 +16,6 @@ parse src = do
   lexed <- first lexToParseError $ L.lexProgram src
   first parseToParseError $ P.parseProgram lexed
   
-
 
 lexToParseError :: L.LexingError -> ParseError
 lexToParseError L.UnexpectedEOF = UnexpectedEOF

@@ -7,14 +7,13 @@
 
 module Parsing.Parser (parseProgram, ParsingError (..)) where
 
-import Control.Applicative ((<|>), many)
+import Control.Applicative (many, (<|>), some)
 import Control.Monad (void)
-import Data.Functor (($>))
-import Language.Name (mkName, discard, Name)
-import Language.Core.Syntax (Term (..), Statement (..), Program)
+import Language.Surface.Syntax (Program, Statement (..), Term (..), Name)
 import Parsing.Lexer (Token (..))
-import Parsing.ParserM (FromStream, ParserM, fromStream, satisfies, pluck, runParser)
+import Parsing.ParserM (FromStream, ParserM, fromStream, pluck, runParser, satisfies)
 import Prelude hiding (pi)
+import Data.Foldable (foldl')
 
 data ParsingError
   = UnexpectedEOF
@@ -29,10 +28,27 @@ instance FromStream [Token] ParsingError where
 is :: Token -> Parser ()
 is = void . satisfies . (==)
 
-name :: Parser String
+name :: Parser Name
 name = pluck $ \case
   (TName s) -> Just s
   _ -> Nothing
+
+-- opsL :: Parser (a -> a -> a) -> Parser a -> Parser a
+-- opsL psep pa = liftA2 squash pa (many (liftA2 (,) psep pa))
+--     where
+--         squash = foldl' (\acc (combine, a) -> combine acc a)
+
+opsR :: Parser (a -> a -> a) -> Parser a -> Parser a
+opsR psep pa = liftA2 squash pa (many (liftA2 (,) psep pa))
+    where
+        shift (oldStart, stack) (combine, a) =
+            (a, (combine, oldStart) : stack)
+        squash start annotated =
+            let (start', annotated') = foldl' shift (start, []) annotated
+             in foldl' (\acc (combine, a) -> combine a acc) start' annotated'
+
+parensed :: Parser a -> Parser a
+parensed p = is TOpenParen *> p <* is TCloseParen
 
 parseProgram :: [Token] -> Either ParsingError Program
 parseProgram t = case runParser program t of
@@ -48,65 +64,56 @@ statement = definition <|> display
   where
     definition = do
       is TDef
-      id <- fmap mkName name
+      id <- name
       is TColon
-      typ <- expression
+      typ <- term
       is TEquals
-      body <- expression
-      pure $ Define id $ Annotation body typ
+      body <- term
+      pure $ Define id typ body
 
-    display = fmap Display $ is TDisplay *> expression
+    display = fmap Display $ is TDisplay *> term
 
+term :: Parser Term
+term = nonOperator <|> binaryOperator
 
-mkDiscardableName :: String -> Name
-mkDiscardableName "_" = discard
-mkDiscardableName name = mkName name
-
-expression :: Parser Term
-expression =
-  pi
-    <|> lambda
-    <|> variable
-    <|> application
-    <|> annotation
-    <|> universe
+nonOperator :: Parser Term
+nonOperator = lambda <|> pi
   where
-    variable = do 
-      id <- fmap mkDiscardableName name
-      pure $ Variable id
-
-
     lambda = do
       is TLambda
-      argName <- fmap mkName name
+      argName <- name
       is TDot
-      body <- expression
+      body <- term
       pure $ Lambda argName body
 
     pi = do
       is TPi
       is TOpenParen
-      argName <- fmap mkName name
+      argName <- name
       is TColon
-      typ <- expression
+      typ <- term
       is TCloseParen
       is TArrow
-      body <- expression
+      body <- term        
       pure $ Pi argName typ body
 
-    application = do
-      is TOpenParen
-      fun <- expression
-      arg <- expression
-      is TCloseParen
-      pure $ Application fun arg
+-- From the lowest to the highest precedence
+binaryOperator :: Parser Term
+binaryOperator = arrow
+  where
+    arrow = opsR (Arrow <$ is TArrow) annotation
+    annotation = opsR (Annotation <$ is TColon) nullaryOperator
 
-    annotation = do
-      is TCloseParen
-      term <- expression
-      is TColon
-      typ <- expression
-      is TCloseParen
-      pure $ Annotation term typ
+nullaryOperator :: Parser Term
+nullaryOperator = application
+  where
+    application = build <$> some mono 
 
-    universe = is TUniverse $> Universe
+    build [] = error "Unreachable!! emptylist on some"
+    build (x:xs) = foldl' Application x xs
+
+mono :: Parser Term
+mono = variable <|> universe <|> parensed term
+  where
+    variable = Variable <$> name
+    universe = is TUniverse *> pure Universe

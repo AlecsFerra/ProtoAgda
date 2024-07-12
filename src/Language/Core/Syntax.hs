@@ -13,8 +13,11 @@ import Control.Monad.Identity (runIdentity)
 import Control.Monad.Reader (ReaderT, asks, local, runReaderT)
 import Data.Bifunctor (bimap)
 import qualified Language.Environment as E
-import Language.Name (FreshNameT, Name, fresh, runFreshNameT)
+import Language.Core.Name (NameT, Name, fresh, runNameT)
 import Text.Printf (printf)
+
+
+type Type = Term
 
 data Term
   = Variable Name
@@ -24,15 +27,6 @@ data Term
   | Annotation Term Type
   | Universe
 
-type Type = Term
-
-instance Show Term where
-  show (Variable name) = show name
-  show (Lambda name body) = printf "λ %s. %s" (show name) (show body)
-  show (Pi name typ body) = printf "Π (%s : %s) -> %s" (show name) (show typ) (show body)
-  show (Application lhs rhs) = printf "(%s %s)" (show lhs) (show rhs)
-  show (Annotation term typ) = printf "%s : %s" (show term) (show typ)
-  show Universe = "𝒰"
 
 data Statement
   = Define Name Term
@@ -43,16 +37,28 @@ type Program = [Statement]
 data Difference = Difference Term Term
   deriving (Show)
 
+instance Show Term where
+  show (Variable name) = show name
+  show (Lambda name body) = printf "λ %s. %s" (show name) (show body)
+  show (Pi name typ body) = printf "Π (%s : %s) -> %s" (show name) (show typ) (show body)
+  show (Application lhs rhs) = printf "(%s %s)" (show lhs) (show rhs)
+  show (Annotation term typ) = printf "%s : %s" (show term) (show typ)
+  show Universe = "𝒰"
+
 alphaEquivalence :: Term -> Term -> Either Difference ()
 alphaEquivalence lhs rhs =
   runIdentity $
     runExceptT $
-      runFreshNameT $
+      runNameT $
         runReaderT (alphaEquivalenceM lhs rhs) (E.empty, E.empty)
+
+-- Names in values are not used as actual names but they are just used as unique
+-- identifiers, so we don't really care about having a fresh NameT for computing
+-- α-equivalence
 
 type Environment = E.Environment Name Name
 
-type AlphaEquivalenceM = ReaderT (Environment, Environment) (FreshNameT (Except Difference))
+type AlphaEquivalenceM = ReaderT (Environment, Environment) (NameT (Except Difference))
 
 extend :: Name -> Name -> Name -> (Environment, Environment) -> (Environment, Environment)
 extend lname rname val = bimap (E.extend lname val) (E.extend rname val)
