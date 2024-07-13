@@ -2,4 +2,3 @@ def id : Pi (A : U) -> A -> A
   = lambda _ a . a
 
 display id
-display idWrong
