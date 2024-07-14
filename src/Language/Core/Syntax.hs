@@ -13,23 +13,21 @@ import Control.Monad.Identity (runIdentity)
 import Control.Monad.Reader (ReaderT, asks, local, runReaderT)
 import Data.Bifunctor (bimap)
 import qualified Language.Core.Environment as E
-import Language.Core.Name (NameT, Name (..), fresh, runNameT)
+import Language.Core.Name (NameT, VName (..), freshVName, runNameT)
 import Text.Printf (printf)
-
 
 type Type = Term
 
 data Term
-  = Variable Name
-  | Lambda Name Term
-  | Pi Name Type Term
+  = Variable VName
+  | Lambda VName Term
+  | Pi VName Type Term
   | Application Term Term
   | Annotation Term Type
   | Universe
 
-
 data Statement
-  = Define Name Term
+  = Define VName Term
   | Display Term
 
 type Program = [Statement]
@@ -57,11 +55,16 @@ alphaEquivalence lhs rhs =
 -- identifiers, so we don't really care about having a fresh NameT for computing
 -- α-equivalence
 
-type Environment = E.Environment Name Name
+type Environment = E.Environment VName VName
 
 type AlphaEquivalenceM = ReaderT (Environment, Environment) (NameT (Except Difference))
 
-extend :: Name -> Name -> Name -> (Environment, Environment) -> (Environment, Environment)
+extend ::
+  VName ->
+  VName ->
+  VName ->
+  (Environment, Environment) ->
+  (Environment, Environment)
 extend lname rname val = bimap (E.extend lname val) (E.extend rname val)
 
 alphaEquivalenceM :: Term -> Term -> AlphaEquivalenceM ()
@@ -73,11 +76,11 @@ alphaEquivalenceM l@(Variable lhs) r@(Variable rhs) = do
     (Just lhs, Just rhs) | lhs == rhs -> pure ()
     _ -> throwError $ Difference l r
 alphaEquivalenceM (Lambda larg lbody) (Lambda rarg rbody) = do
-  freshId <- fresh
+  freshId <- freshVName
   local (extend larg rarg freshId) $ alphaEquivalenceM lbody rbody
 alphaEquivalenceM (Pi larg ltyp lbody) (Pi rarg rtyp rbody) = do
   alphaEquivalenceM ltyp rtyp
-  freshId <- fresh
+  freshId <- freshVName
   local (extend larg rarg freshId) $ alphaEquivalenceM lbody rbody
 alphaEquivalenceM (Application llhs lrhs) (Application rlhs rrhs) = do
   alphaEquivalenceM llhs rlhs

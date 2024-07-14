@@ -8,7 +8,7 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader (MonadReader, ask, asks, local, runReaderT)
 import Data.Foldable (foldlM)
 import qualified Language.Core.Environment as E
-import Language.Core.Name (MonadName, Name (..), freshHint)
+import Language.Core.Name (MonadName, VName (..), refreshVName)
 import Language.Core.Syntax
   ( Difference,
     Program,
@@ -18,9 +18,9 @@ import Language.Core.Syntax
   )
 import Text.Printf (printf)
 
-type Environment = E.Environment Name Value
+type Environment = E.Environment VName Value
 
-type Context = E.Environment Name Bound
+type Context = E.Environment VName Bound
 
 type VType = Value
 
@@ -41,7 +41,7 @@ instance Show Value where
   show VUniverse = "𝒰"
   show (VNeutral _ term) = show term
 
-data Closure = Closure Environment Name Term
+data Closure = Closure Environment VName Term
   deriving (Show)
 
 data Normal
@@ -59,7 +59,7 @@ data Neutral
     -- can't reduce it further
     NApplication Neutral Normal
   | -- A variable that is nout bound in this context
-    NVariable Name
+    NVariable VName
 
 instance Show Neutral where
   show (NApplication fun arg) = printf "(%s %s)" (show fun) (show arg)
@@ -71,7 +71,7 @@ data Bound
   deriving (Show)
 
 data Error
-  = UndefinedVariable Name
+  = UndefinedVariable VName
   | CannotSynthetizeTypeFor Term
   | TypeError VType Term
   | TypeMismatch Term Term Difference
@@ -85,7 +85,7 @@ applyClosure (Closure env argName body) arg = do
   let env' = E.extend argName arg env
   runReaderT (eval body) env'
 
-argName :: Closure -> Name
+argName :: Closure -> VName
 argName (Closure _ argName _) = argName
 
 apply :: (MonadError Error m) => Value -> Value -> m Value
@@ -135,7 +135,7 @@ readbackNormal ::
   m Term
 readbackNormal (NAnnotated (VPi argType closure) f) = do
   -- Constuct the neutral version of the argument
-  argName <- freshHint $ argName closure
+  argName <- refreshVName $ argName closure
   let neutralArg = VNeutral argType $ NVariable argName
   -- Apply the argument to the type constructor and to the function to obtain
   -- the return value and its type
@@ -148,7 +148,7 @@ readbackNormal (NAnnotated (VPi argType closure) f) = do
   pure $ Lambda argName body
 readbackNormal (NAnnotated VUniverse (VPi argType closure)) = do
   -- Constuct the neutral value of the argument
-  argName <- freshHint $ argName closure
+  argName <- refreshVName $ argName closure
   let argValue = VNeutral argType $ NVariable argName
   -- Apply the argument to the closure, since it's the result of a Pi, it's a
   -- type so it has type Universe so we can annotate it directly.

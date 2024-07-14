@@ -4,7 +4,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 module Language.Core.Name
-  ( Name (..),
+  ( VName (..),
     MonadName(..),
     NameT,
     runNameT,
@@ -18,24 +18,22 @@ import Control.Monad.State (StateT, evalStateT, get, modify)
 import Control.Monad.Trans (MonadTrans, lift)
 import Text.Printf (printf)
 
-data Name
-  = Name Int
+data VName
+  = MachineName Int
   | AnnotatedName String Int
   | Discarded Int
   deriving (Eq, Ord)
 
-instance Show Name where
-  show (Name id) = printf "$%d" id
+instance Show VName where
+  show (MachineName id) = printf "$%d" id
   show (AnnotatedName ann id) = printf "%s$%d" ann id
   show (Discarded id) = printf "discarded$%d" id
 
 class (Monad m) => MonadName m where
-  fresh :: m Name
-
-  freshHint :: Name -> m Name
-
-  mkName :: String -> m Name
-  mkDiscarded :: m Name
+  freshVName :: m VName
+  refreshVName :: VName -> m VName
+  mkVName :: String -> m VName
+  mkVDiscarded :: m VName
 
 newtype NameT m a = NameT {unNameT :: StateT Int m a}
   deriving (MonadTrans, Monad, Applicative, Functor)
@@ -47,14 +45,14 @@ freshId = NameT $ do
   pure id
 
 instance (Monad m) => MonadName (NameT m) where
-  fresh = Name <$> freshId
+  freshVName = MachineName <$> freshId
 
-  freshHint (Name _) = Name <$> freshId
-  freshHint (AnnotatedName ann _) = AnnotatedName ann <$> freshId
-  freshHint (Discarded _) = Discarded <$> freshId
+  refreshVName (MachineName _) = MachineName <$> freshId
+  refreshVName (AnnotatedName ann _) = AnnotatedName ann <$> freshId
+  refreshVName (Discarded _) = Discarded <$> freshId
 
-  mkName ann = AnnotatedName ann <$> freshId
-  mkDiscarded = Discarded <$> freshId
+  mkVName ann = AnnotatedName ann <$> freshId
+  mkVDiscarded = Discarded <$> freshId
 
 runNameT :: (Monad m) => NameT m a -> m a
 runNameT = flip evalStateT 0 . unNameT
@@ -73,13 +71,13 @@ instance (MonadError e m) => MonadError e (NameT m) where
   catchError m h = NameT $ catchError (unNameT m) (unNameT <$> h)
 
 instance (MonadName m) => MonadName (ExceptT e m) where
-  fresh = lift fresh
-  freshHint = lift . freshHint
-  mkName = lift . mkName
-  mkDiscarded = lift mkDiscarded
+  freshVName = lift freshVName
+  refreshVName = lift . refreshVName
+  mkVName = lift . mkVName
+  mkVDiscarded = lift mkVDiscarded
 
 instance (MonadName m) => MonadName (ReaderT e m) where
-  fresh = lift fresh
-  freshHint = lift . freshHint
-  mkName = lift . mkName
-  mkDiscarded = lift mkDiscarded
+  freshVName = lift freshVName
+  refreshVName = lift . refreshVName
+  mkVName = lift . mkVName
+  mkVDiscarded = lift mkVDiscarded

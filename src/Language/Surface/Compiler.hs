@@ -5,21 +5,21 @@ module Language.Surface.Compiler (compile) where
 import Control.Monad (foldM)
 import Control.Monad.Reader (MonadReader, asks, local, runReaderT)
 import Data.Foldable (foldl')
-import Language.Core.Name (MonadName, mkDiscarded, mkName)
+import Language.Core.Name (MonadName, mkVDiscarded, mkVName)
 import qualified Language.Core.Name as C
 import qualified Language.Core.Syntax as C
 import qualified Language.Surface.Syntax as S
 
-type NameStack = [(S.Name, C.Name)]
+type NameStack = [(S.Name, C.VName)]
 
-extend :: S.Name -> C.Name -> NameStack -> NameStack
+extend :: S.Name -> C.VName -> NameStack -> NameStack
 extend s c = ((s, c) :)
 
-makeArgName :: (MonadName m) => String -> m C.Name
-makeArgName "_" = mkDiscarded
-makeArgName name = mkName name
+makeArgName :: (MonadName m) => String -> m C.VName
+makeArgName "_" = mkVDiscarded
+makeArgName name = mkVName name
 
-bindNames :: (MonadName m) => [S.Name] -> m (NameStack -> NameStack, [C.Name])
+bindNames :: (MonadName m) => [S.Name] -> m (NameStack -> NameStack, [C.VName])
 bindNames sArgNames = do
   cArgNames <- mapM makeArgName sArgNames
   let names = zip sArgNames cArgNames
@@ -28,14 +28,14 @@ bindNames sArgNames = do
   pure (bindNames, cArgNames)
 
 compileTerm :: (MonadReader NameStack m, MonadName m) => S.Term -> m C.Term
-compileTerm (S.Variable "_") = C.Variable <$> mkDiscarded
+compileTerm (S.Variable "_") = C.Variable <$> mkVDiscarded
 compileTerm (S.Variable sName) = do
   mCName <- asks $ lookup sName
   case mCName of
     Just cName -> pure $ C.Variable cName
     -- The variable is unbound but we will let the typechecker figure it out
     -- so we generate a newname
-    Nothing -> C.Variable <$> mkName sName
+    Nothing -> C.Variable <$> mkVName sName
 compileTerm (S.Lambda sArgNames sBody) = do
   (bindNames, cArgNames) <- bindNames sArgNames
   cBody <- local bindNames $ compileTerm sBody
@@ -54,7 +54,7 @@ compileTerm (S.Arrow sType sBody) = do
   -- We can't refer to the discarded name so who cares about adding it to the
   -- environment
   cBody <- compileTerm sBody
-  bogusName <- mkDiscarded
+  bogusName <- mkVDiscarded
   pure $ C.Pi bogusName cType cBody
 compileTerm (S.Application sFun sArg) = do
   cFun <- compileTerm sFun
