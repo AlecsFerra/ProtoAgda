@@ -1,0 +1,5 @@
+def id : Pi(A : U) -> A -> A
+  = lambda _ a . a
+
+def idt : Pi(A : U) -> A -> A
+  = lambda a b . id _ b

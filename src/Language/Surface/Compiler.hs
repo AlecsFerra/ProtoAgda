@@ -5,7 +5,7 @@ module Language.Surface.Compiler (compile) where
 import Control.Monad (foldM)
 import Control.Monad.Reader (MonadReader, asks, local, runReaderT)
 import Data.Foldable (foldl')
-import Language.Core.Name (MonadName, mkVDiscarded, mkVName)
+import Language.Core.Name (MonadName, mkVDiscarded, mkVName, mkMName)
 import qualified Language.Core.Name as C
 import qualified Language.Core.Syntax as C
 import qualified Language.Surface.Syntax as S
@@ -28,7 +28,7 @@ bindNames sArgNames = do
   pure (bindNames, cArgNames)
 
 compileTerm :: (MonadReader NameStack m, MonadName m) => S.Term -> m C.Term
-compileTerm (S.Variable "_") = C.Variable <$> mkVDiscarded
+compileTerm (S.Variable "_") = C.Meta <$> mkMName
 compileTerm (S.Variable sName) = do
   mCName <- asks $ lookup sName
   case mCName of

@@ -6,9 +6,10 @@ import Control.Monad.Error.Class (MonadError)
 import Control.Monad.Except (runExceptT, throwError)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader (MonadReader, ask, asks, local, runReaderT)
+import Control.Monad.State (MonadState, evalStateT, gets, modify)
 import Data.Foldable (foldlM)
 import qualified Language.Core.Environment as E
-import Language.Core.Name (MonadName, VName (..), refreshVName)
+import Language.Core.Name (MName, MonadName, VName (..), mkMName, refreshVName)
 import Language.Core.Syntax
   ( Difference,
     Program,
@@ -18,28 +19,15 @@ import Language.Core.Syntax
   )
 import Text.Printf (printf)
 
-type Environment = E.Environment VName Value
-
-type Context = E.Environment VName Bound
-
 type VType = Value
 
 data Value
   = VPi VType Closure
   | VLambda Closure
   | VUniverse
+  | VMeta MName
   | -- We need to keep track of the type of neutral term
     VNeutral VType Neutral
-
-instance Show Value where
-  show (VPi argType (Closure _ (Discarded _) body)) =
-    printf "%s → %s" (show argType) (show body)
-  show (VPi argType (Closure _ argName body)) =
-    printf "Π (%s : %s) -> %s" (show argName) (show argType) (show body)
-  show (VLambda (Closure _ argName body)) =
-    printf "λ %s. %s" (show argName) (show body)
-  show VUniverse = "𝒰"
-  show (VNeutral _ term) = show term
 
 data Closure = Closure Environment VName Term
   deriving (Show)
@@ -47,9 +35,6 @@ data Closure = Closure Environment VName Term
 data Normal
   = -- Normal forms are values annotated with a type
     NAnnotated VType Value
-
-instance Show Normal where
-  show (NAnnotated _ term) = show term
 
 -- Neutral expressions are expression that are temporarly stuck
 data Neutral
@@ -70,6 +55,16 @@ data Bound
   | Bind VType
   deriving (Show)
 
+data MValue
+  = Solved Value
+  | Unsolved
+
+type Environment = E.Environment VName Value
+
+type Context = E.Environment VName Bound
+
+type MetaContext = E.Environment MName MValue
+
 data Error
   = UndefinedVariable VName
   | CannotSynthetizeTypeFor Term
@@ -80,7 +75,11 @@ data Error
   | TermApplicationError Value
   deriving (Show)
 
-applyClosure :: (MonadError Error m) => Closure -> Value -> m Value
+applyClosure ::
+  (MonadState MetaContext m, MonadError Error m) =>
+  Closure ->
+  Value ->
+  m Value
 applyClosure (Closure env argName body) arg = do
   let env' = E.extend argName arg env
   runReaderT (eval body) env'
@@ -88,7 +87,7 @@ applyClosure (Closure env argName body) arg = do
 argName :: Closure -> VName
 argName (Closure _ argName _) = argName
 
-apply :: (MonadError Error m) => Value -> Value -> m Value
+apply :: (MonadState MetaContext m, MonadError Error m) => Value -> Value -> m Value
 -- If it is a lambda-closure we simply apply the body in the closure context
 apply (VLambda closure) arg = applyClosure closure arg
 -- If it is a pi-closure that is neutral we canno't evaluate the function
@@ -105,7 +104,10 @@ apply (VNeutral (VPi argType retTyConstructor) neutralFun) arg = do
   pure $ VNeutral resultType neutralApplication
 apply fun _ = throwError $ TermApplicationError fun
 
-eval :: (MonadReader Environment m, MonadError Error m) => Term -> m Value
+eval ::
+  (MonadState MetaContext m, MonadReader Environment m, MonadError Error m) =>
+  Term ->
+  m Value
 eval (Annotation term _) = eval term
 eval Universe = pure VUniverse
 eval (Pi param typ body) = do
@@ -127,10 +129,23 @@ eval (Variable name) = do
   case mval of
     Just val -> pure val
     _ -> throwError $ UndefinedVariable name
+eval (Meta name) = do
+  mval <- gets $ E.lookup name
+  case mval of
+    Just (Solved val) -> pure val
+    Just Unsolved -> pure $ VMeta name
+    Nothing -> do
+      -- We haven't already encountered this meta variable but it's unsolved
+      modify $ E.extend name Unsolved
+      pure $ VMeta name
 
 -- Reading back transform a value in it's normal form
 readbackNormal ::
-  (MonadReader Context m, MonadError Error m, MonadName m) =>
+  ( MonadReader Context m,
+    MonadError Error m,
+    MonadName m,
+    MonadState MetaContext m
+  ) =>
   Normal ->
   m Term
 readbackNormal (NAnnotated (VPi argType closure) f) = do
@@ -163,10 +178,15 @@ readbackNormal (NAnnotated VUniverse (VPi argType closure)) = do
   pure $ Pi argName argType body
 readbackNormal (NAnnotated VUniverse VUniverse) = pure Universe
 readbackNormal (NAnnotated _ (VNeutral _ n)) = readbackNeutral n
+readbackNormal (NAnnotated _ (VMeta name)) = pure $ Meta name
 readbackNormal (NAnnotated typ value) = throwError $ ReadBackTypeError typ value
 
 readbackNeutral ::
-  (MonadReader Context m, MonadError Error m, MonadName m) =>
+  ( MonadReader Context m,
+    MonadError Error m,
+    MonadName m,
+    MonadState MetaContext m
+  ) =>
   Neutral ->
   m Term
 readbackNeutral (NVariable name) = pure $ Variable name
@@ -184,7 +204,13 @@ asEnvironment = E.mapWithKey convert
     -- obviusly we dont' have a value
     convert name (Bind typ) = VNeutral typ (NVariable name)
 
-evalInContext :: (MonadReader Context m, MonadError Error m) => Term -> m Value
+evalInContext ::
+  ( MonadReader Context m,
+    MonadError Error m,
+    MonadState MetaContext m
+  ) =>
+  Term ->
+  m Value
 evalInContext t = do
   env <- asks asEnvironment
   runReaderT (eval t) env
@@ -192,7 +218,13 @@ evalInContext t = do
 -- Synthetize a type (In Term form since it's being elaborated) for `Term` and
 -- elaborate it
 synthetize ::
-  (MonadError Error m, MonadReader Context m, MonadName m) =>
+  ( MonadError Error m,
+    MonadReader Context m,
+    MonadName m,
+    MonadState
+      MetaContext
+      m
+  ) =>
   Term ->
   m (Term, Term)
 synthetize (Annotation term typ) = do
@@ -236,7 +268,11 @@ synthetize t = throwError $ CannotSynthetizeTypeFor t
 
 -- Check if `Term` has type `Type` returning the elaborate version
 check ::
-  (MonadReader Context m, MonadError Error m, MonadName m) =>
+  ( MonadReader Context m,
+    MonadError Error m,
+    MonadName m,
+    MonadState MetaContext m
+  ) =>
   Term ->
   VType ->
   m Term
@@ -250,6 +286,7 @@ check (Lambda argName body) (VPi argType closure) = do
   body <- local bindArg $ check body retType
   pure $ Lambda argName body
 check term@(Lambda _ _) typ = throwError $ TypeError typ term
+check (Meta _) _ = Meta <$> mkMName
 check term typ = do
   -- Trt to synthetize a type for term
   (synthetizedType, term) <- synthetize term
@@ -259,7 +296,11 @@ check term typ = do
   pure term
 
 equivalence ::
-  (MonadReader Context m, MonadError Error m, MonadName m) =>
+  ( MonadReader Context m,
+    MonadError Error m,
+    MonadName m,
+    MonadState MetaContext m
+  ) =>
   VType ->
   Value ->
   Value ->
@@ -272,7 +313,14 @@ equivalence typ a b = do
     Right () -> pure ()
     Left difference -> throwError $ TypeMismatch a b difference
 
-runProgramM :: (MonadName m, MonadError Error m, MonadIO m) => Program -> m Context
+runProgramM ::
+  ( MonadName m,
+    MonadError Error m,
+    MonadIO m,
+    MonadState MetaContext m
+  ) =>
+  Program ->
+  m Context
 runProgramM = foldlM step E.empty
   where
     step ctx (Define name term) = do
@@ -291,7 +339,23 @@ runProgramM = foldlM step E.empty
 
 runProgram :: (MonadName m, MonadIO m) => Program -> m ()
 runProgram program = do
-  result <- runExceptT $ runProgramM program
+  result <- evalStateT (runExceptT $ runProgramM program) E.empty
   case result of
     Left error -> liftIO $ putStrLn $ printf "ERROR: %s" (show error)
     Right _ -> pure ()
+
+-- Show :vomit
+
+instance Show Value where
+  show (VPi argType (Closure _ (Discarded _) body)) =
+    printf "%s → %s" (show argType) (show body)
+  show (VPi argType (Closure _ argName body)) =
+    printf "Π (%s : %s) -> %s" (show argName) (show argType) (show body)
+  show (VLambda (Closure _ argName body)) =
+    printf "λ %s. %s" (show argName) (show body)
+  show VUniverse = "𝒰"
+  show (VNeutral _ term) = show term
+  show (VMeta name) = show name
+
+instance Show Normal where
+  show (NAnnotated _ term) = show term
