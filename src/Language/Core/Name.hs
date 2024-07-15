@@ -6,16 +6,25 @@
 module Language.Core.Name
   ( VName (..),
     MName,
-    MonadName(..),
+    MonadName (..),
     NameT,
     runNameT,
+    mapNameT,
   )
 where
 
 import Control.Monad.Except (ExceptT, MonadError, catchError, throwError)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader (ReaderT)
-import Control.Monad.State (StateT, evalStateT, get, modify, MonadState, put)
+import Control.Monad.State
+  ( MonadState,
+    StateT (..),
+    evalStateT,
+    get,
+    modify,
+    put,
+    runStateT,
+  )
 import Control.Monad.Trans (MonadTrans, lift)
 import Text.Printf (printf)
 
@@ -69,13 +78,15 @@ instance (Monad m) => MonadName (NameT m) where
 runNameT :: (Monad m) => NameT m a -> m a
 runNameT = flip evalStateT 0 . unNameT
 
+mapNameT :: (Monad m) => (m a -> m b) -> NameT m a -> NameT m b
+mapNameT f m = NameT . StateT $ \s -> do
+  (a, s) <- runStateT (unNameT m) s
+  b <- f $ pure a
+  pure (b, s)
+
 -- MTL instances
 instance (MonadIO m) => MonadIO (NameT m) where
   liftIO = lift . liftIO
-
--- liftCatch :: Catch e m (a,s) -> Catch e (StateT s m) a
--- liftCatch catchE m h =
---     StateT $ \ s -> runStateT m s `catchE` \ e -> runStateT (h e) s
 
 instance (MonadError e m) => MonadError e (NameT m) where
   throwError = lift . throwError
@@ -86,13 +97,12 @@ instance (MonadState s m) => MonadState s (NameT m) where
   get = lift get
   put = lift . put
 
-
 instance (MonadName m) => MonadName (ExceptT e m) where
   freshVName = lift freshVName
   refreshVName = lift . refreshVName
   mkVName = lift . mkVName
   mkVDiscarded = lift mkVDiscarded
-  
+
   mkMName = lift mkMName
 
 instance (MonadName m) => MonadName (StateT e m) where
@@ -100,7 +110,7 @@ instance (MonadName m) => MonadName (StateT e m) where
   refreshVName = lift . refreshVName
   mkVName = lift . mkVName
   mkVDiscarded = lift mkVDiscarded
-  
+
   mkMName = lift mkMName
 
 instance (MonadName m) => MonadName (ReaderT e m) where
@@ -108,5 +118,5 @@ instance (MonadName m) => MonadName (ReaderT e m) where
   refreshVName = lift . refreshVName
   mkVName = lift . mkVName
   mkVDiscarded = lift mkVDiscarded
-  
+
   mkMName = lift mkMName

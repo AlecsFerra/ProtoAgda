@@ -3,19 +3,11 @@ module Language.Core.Syntax
     Type,
     Statement (..),
     Program,
-    alphaEquivalence,
-    Difference,
   )
 where
 
-import Control.Monad.Except (Except, runExceptT, throwError)
-import Control.Monad.Identity (runIdentity)
-import Control.Monad.Reader (ReaderT, asks, local, runReaderT)
-import Data.Bifunctor (bimap)
-import qualified Language.Core.Environment as E
-import Language.Core.Name (NameT, VName (..), freshVName, runNameT, MName)
+import Language.Core.Name (MName, VName (..))
 import Text.Printf (printf)
-import Debug.Trace
 
 type Type = Term
 
@@ -34,68 +26,14 @@ data Statement
 
 type Program = [Statement]
 
-data Difference = Difference Term Term
-  deriving (Show)
-
 instance Show Term where
   show (Variable name) = show name
   show (Meta name) = show name
   show (Lambda name body) = printf "λ %s. %s" (show name) (show body)
   show (Pi (Discarded _) typ body) = printf "(%s -> %s)" (show typ) (show body)
-  show (Pi name typ body) = printf "Π (%s : %s) -> %s" (show name) (show typ) (show body)
+  show (Pi name typ body) = 
+    printf "Π (%s : %s) -> %s" (show name) (show typ) (show body)
   show (Application lhs rhs) = printf "(%s %s)" (show lhs) (show rhs)
   show (Annotation term typ) = printf "%s : %s" (show term) (show typ)
   show Universe = "𝒰"
 
-alphaEquivalence :: Term -> Term -> Either Difference ()
-alphaEquivalence lhs rhs =
-  runIdentity $
-    runExceptT $
-      runNameT $
-        runReaderT (alphaEquivalenceM1 lhs rhs) (E.empty, E.empty)
-
--- Names in values are not used as actual names but they are just used as unique
--- identifiers, so we don't really care about having a fresh NameT for computing
--- α-equivalence
-
-type Environment = E.Environment VName VName
-
-type AlphaEquivalenceM = ReaderT (Environment, Environment) (NameT (Except Difference))
-
-extend ::
-  VName ->
-  VName ->
-  VName ->
-  (Environment, Environment) ->
-  (Environment, Environment)
-extend lname rname val = bimap (E.extend lname val) (E.extend rname val)
-
-alphaEquivalenceM1 :: Term -> Term -> AlphaEquivalenceM ()
-alphaEquivalenceM1 t1 t2 = do
-  traceM $ "aaa: " ++ show t1 ++ "\t" ++ show t2
-  alphaEquivalenceM t1 t2
-
-alphaEquivalenceM :: Term -> Term -> AlphaEquivalenceM ()
-alphaEquivalenceM l@(Variable lhs) r@(Variable rhs) = do
-  mlhs <- asks $ E.lookup lhs . fst
-  mrhs <- asks $ E.lookup rhs . snd
-  case (mlhs, mrhs) of
-    (Nothing, Nothing) | lhs == rhs -> pure ()
-    (Just lhs, Just rhs) | lhs == rhs -> pure ()
-    _ -> throwError $ Difference l r
-alphaEquivalenceM (Lambda larg lbody) (Lambda rarg rbody) = do
-  freshId <- freshVName
-  local (extend larg rarg freshId) $ alphaEquivalenceM lbody rbody
-alphaEquivalenceM (Pi larg ltyp lbody) (Pi rarg rtyp rbody) = do
-  alphaEquivalenceM ltyp rtyp
-  freshId <- freshVName
-  local (extend larg rarg freshId) $ alphaEquivalenceM lbody rbody
-alphaEquivalenceM (Application llhs lrhs) (Application rlhs rrhs) = do
-  alphaEquivalenceM llhs rlhs
-  alphaEquivalenceM lrhs rrhs
-alphaEquivalenceM (Annotation lterm ltyp) (Annotation rterm rtyp) = do
-  alphaEquivalenceM ltyp rtyp
-  alphaEquivalenceM lterm rterm
-alphaEquivalenceM Universe Universe = pure ()
-alphaEquivalenceM lhs rhs = do
-  throwError $ Difference lhs rhs
