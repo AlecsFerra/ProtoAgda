@@ -1,0 +1,9 @@
+def idTy : 𝒰
+  = Π (X : 𝒰) -> X -> X
+
+def id : idTy
+  = λ _ x. x
+
+def idAgain : id _ idTy
+  = λ _ x. id _ x
+display idAgain
