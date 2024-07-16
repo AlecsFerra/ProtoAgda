@@ -21,6 +21,9 @@ module Language.Core.Value
     asEnvironment,
     runMetaContextT,
     argName,
+    names,
+    Env (..),
+    MValue (..)
   )
 where
 
@@ -34,12 +37,11 @@ import Control.Monad.Reader
     asks,
     mapReaderT,
   )
-import Control.Monad.State (StateT, evalStateT, gets, modify)
+import Control.Monad.State (StateT, evalStateT, gets, modify, get)
 import Control.Monad.Trans (MonadTrans, lift)
 import qualified Data.Map as M
 import Language.Core.Name (MName, MonadName (..), NameT, VName (..), mapNameT)
 import Language.Core.Syntax (Term)
-import Text.Printf (printf)
 import Prelude hiding (lookup)
 
 type VType = Value
@@ -74,9 +76,12 @@ data Neutral
 data Bound
   = Definition VType Value
   | Bind VType
-  deriving (Show)
 
 newtype Env k v = Env {unEnv :: M.Map k v}
+  deriving Show
+
+names :: Env k v -> [k]
+names = M.keys . unEnv
 
 insert :: (Ord k) => k -> v -> Env k v -> Env k v
 insert k v = Env . M.insert k v . unEnv
@@ -139,19 +144,24 @@ instance (Monad m) => MonadContext (ContextT m) where
 data MValue
   = Solved Value
   | Unsolved
+  
 
 type MetaContext = Env MName MValue
 
 class (Monad m) => MonadMetaContext m where
   lookupMeta :: MName -> m Value
   solveMeta :: MName -> Value -> m ()
+  metaContext :: m MetaContext
 
 newtype MetaContextT m a = MetaContextT
   { unMetaContextT :: StateT MetaContext m a
   }
   deriving (MonadTrans, Monad, Applicative, Functor)
 
-runMetaContextT :: (Monad m) => MetaContext -> MetaContextT m a -> m a
+runMetaContextT :: (Monad m) =>
+  MetaContext ->
+  MetaContextT m a ->
+  m a
 runMetaContextT ctx = flip evalStateT ctx . unMetaContextT
 
 instance (Monad m) => MonadMetaContext (MetaContextT m) where
@@ -164,6 +174,8 @@ instance (Monad m) => MonadMetaContext (MetaContextT m) where
         -- We haven't already encountered this meta variable but it's unsolved
         modify $ insert name Unsolved
         pure $ VMeta name
+
+  metaContext = MetaContextT get
 
   solveMeta name value =
     MetaContextT $ modify $ insert name (Solved value)
@@ -188,10 +200,12 @@ instance (MonadName m) => MonadName (ContextT m) where
 instance (MonadMetaContext m) => MonadMetaContext (EnvironmentT m) where
   lookupMeta = lift . lookupMeta
   solveMeta n v = lift $ solveMeta n v
+  metaContext = lift metaContext
 
 instance (MonadMetaContext m) => MonadMetaContext (ContextT m) where
   lookupMeta = lift . lookupMeta
   solveMeta n v = lift $ solveMeta n v
+  metaContext = lift metaContext
 
 instance (MonadError e m) => MonadError e (EnvironmentT m) where
   throwError = lift . throwError
@@ -208,6 +222,7 @@ instance (MonadError e m) => MonadError e (ContextT m) where
 instance (MonadMetaContext m) => MonadMetaContext (ExceptT e m) where
   lookupMeta = lift . lookupMeta
   solveMeta n v = lift $ solveMeta n v
+  metaContext = lift metaContext
 
 instance (MonadIO m) => MonadIO (MetaContextT m) where
   liftIO = lift . liftIO
@@ -220,6 +235,7 @@ instance (MonadContext m) => MonadContext (ReaderT a m) where
 instance (MonadMetaContext m) => MonadMetaContext (ReaderT a m) where
   lookupMeta = lift . lookupMeta
   solveMeta name = lift . solveMeta name
+  metaContext = lift metaContext
 
 instance (MonadContext m) => MonadContext (NameT m) where
   lookupBind = lift . lookupBind
@@ -229,22 +245,4 @@ instance (MonadContext m) => MonadContext (NameT m) where
 instance (MonadMetaContext m) => MonadMetaContext (NameT m) where
   lookupMeta = lift . lookupMeta
   solveMeta name = lift . solveMeta name
-
--- Show to de deleted
-instance Show Neutral where
-  show (NApplication fun arg) = printf "(%s %s)" (show fun) (show arg)
-  show (NVariable name) = show name
-
-instance Show Value where
-  show (VPi argType (Closure _ (Discarded _) body)) =
-    printf "%s → %s" (show argType) (show body)
-  show (VPi argType (Closure _ argName body)) =
-    printf "Π (%s : %s) -> %s" (show argName) (show argType) (show body)
-  show (VLambda (Closure _ argName body)) =
-    printf "λ %s. %s" (show argName) (show body)
-  show VUniverse = "𝒰"
-  show (VNeutral _ term) = show term
-  show (VMeta name) = show name
-
-instance Show Normal where
-  show (NAnnotated _ term) = show term
+  metaContext = lift metaContext

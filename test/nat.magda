@@ -1,0 +1,14 @@
+def Nat : U 
+  = Π (X : U) -> (X -> X) -> X -> X
+
+def zero : Nat
+  = λ _ _ x. x
+
+def one : Nat
+  = λ _ s x. s x
+
+def suc : Nat -> Nat
+  = λ n _ s x. s (n _ s x)
+
+display one
+display suc zero

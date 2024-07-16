@@ -5,7 +5,7 @@
 
 module Language.Core.Name
   ( VName (..),
-    MName,
+    MName (..),
     MonadName (..),
     NameT,
     runNameT,

@@ -1,7 +1,7 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 
-module Language.Core.Engine (runProgram) where
+module Language.Core.Engine (runProgram, Error (..)) where
 
 import Control.Monad.Error.Class (MonadError)
 import Control.Monad.Except (runExceptT, throwError)
@@ -30,9 +30,11 @@ import Language.Core.Value
     runContextT,
     runEnvironmentT,
     runMetaContextT,
+    names,
   )
 import Control.Arrow ((***))
 import Text.Printf (printf)
+import Extra.Pretty (Pretty (..))
 
 data Error
   = UndefinedVariable VName
@@ -42,8 +44,9 @@ data Error
   | ReadBackTypeError VType Value
   | CannotApplyTerm Term VType
   | TermApplicationError Value
+  | CannotSolveMeta MName
+  | RecursiveMeta MName
   | Todo String
-  deriving (Show)
 
 type MonadMeta m = (MonadMetaContext m, MonadError Error m)
 
@@ -223,7 +226,8 @@ type MonadAlpha m =
 -- identifiers, so we don't really care about having a fresh NameT for computing
 -- α-equivalence
 alphaEquivalence :: (MonadContext m, MonadMeta m) => Term -> Term -> m ()
-alphaEquivalence lhs rhs = runNameT $ runReaderT (alphaEquivalenceM lhs rhs) (M.empty, M.empty)
+alphaEquivalence lhs rhs 
+  = runNameT $ runReaderT (alphaEquivalenceM lhs rhs) (M.empty, M.empty)
 
 alphaEquivalenceM :: (MonadAlpha m) => Term -> Term -> m ()
 alphaEquivalenceM l@(Variable nameL) r@(Variable nameR) = do
@@ -249,14 +253,57 @@ alphaEquivalenceM (Annotation lTerm lType) (Annotation rTerm rType) = do
   alphaEquivalenceM lTerm rTerm
   alphaEquivalenceM lType rType
 alphaEquivalenceM Universe Universe = pure ()
-alphaEquivalenceM (Meta mname) target = do
-  throwError $ Todo $ "Unimplemented meta inference ~ " ++ show target
-alphaEquivalenceM target (Meta mname) = do
-  throwError $ Todo $ "Unimplemented meta inference ~ " ++ show target
+alphaEquivalenceM (Meta mName) target = do
+  contextNames <- names <$> context
+  localNames <- asks $ M.keys . fst
+  let spine = localNames ++ contextNames
+  solved <- runReaderT (solve mName target) spine
+  solved <- evalInContext solved
+  solveMeta mName solved
+alphaEquivalenceM target (Meta mName) = do
+  contextNames <- names <$> context
+  localNames <- asks $ M.keys . snd
+  let spine = localNames ++ contextNames
+  solved <- runReaderT (solve mName target) spine
+  solved <- evalInContext solved
+  solveMeta mName solved
 alphaEquivalenceM lhs rhs = throwError $ TypeMismatch lhs rhs
 
+solve :: (MonadError Error m, MonadReader [VName] m) => MName -> Term -> m Term
+solve mName (Variable name) = do
+  isPresent <- asks $ elem name
+  if isPresent then
+    pure $ Variable name
+  else
+    throwError $ CannotSolveMeta mName
+solve mName (Meta otherMeta) = do
+  if mName == otherMeta then
+    throwError $ RecursiveMeta mName
+  else
+    pure $ Meta otherMeta
+solve mName (Lambda argName body) = do
+  solvedBody <- local (argName :) $ solve mName body
+  pure $ Lambda argName solvedBody
+solve mName (Pi argName argType body) = do
+  solvedType <- solve mName argType
+  solvedBody <- local (argName :) $ solve mName body
+  pure $ Pi argName solvedType solvedBody
+solve mName (Application fun arg) = do
+  solvedFun <- solve mName fun
+  solvedArg <- solve mName arg
+  pure $ Application solvedFun solvedArg
+solve mName (Annotation term typ) = do
+  solvedTerm <- solve mName term
+  solvedType <- solve mName typ
+  pure $ Annotation solvedTerm solvedType
+solve _ Universe = pure Universe
+
 runProgramM :: (MonadName m, MonadMeta m, MonadIO m) => Program -> m Context
-runProgramM = foldlM step emptyEnv
+runProgramM program = do
+  ctx <- foldlM step emptyEnv program
+  meta <- metaContext
+  liftIO $ putStrLn $ printf "Meta context: %s" (pretty meta)
+  pure ctx
   where
     step ctx (Define name term) = do
       (typ, term) <- runContextT ctx $ synthetize term
@@ -264,17 +311,38 @@ runProgramM = foldlM step emptyEnv
       typ <- runEnvironmentT env $ eval typ
       term <- runEnvironmentT env $ eval term
       pure $ insert name (Definition typ term) ctx
-    step ctx (Display term) = do
-      (typ, term) <- runContextT ctx $ synthetize term
+    step ctx (Display originalTerm) = do
+      (typ, term) <- runContextT ctx $ synthetize originalTerm
       let env = asEnvironment ctx
       typ <- runEnvironmentT env $ eval typ
       term <- runEnvironmentT env $ eval term
-      liftIO $ putStrLn $ printf "%s : %s" (show term) (show typ)
+      liftIO $ putStrLn $ printf "%s = %s : %s" 
+        (pretty originalTerm) (pretty term) (pretty typ)
       pure ctx
 
 runProgram :: (MonadName m, MonadIO m) => Program -> m ()
 runProgram program = do
   result <- runMetaContextT emptyEnv $ runExceptT $ runProgramM program
   case result of
-    Left error -> liftIO $ putStrLn $ printf "ERROR: %s" (show error)
+    Left error -> liftIO $ putStrLn $ printf "ERROR: %s" (pretty error)
     Right _ -> pure ()
+
+instance Pretty Error where
+  pretty (UndefinedVariable name) = printf "Undefined variable %s" (pretty name) 
+  pretty (CannotSynthetizeTypeFor term) = printf "Cannot infer a type for '%s'"
+    (pretty term)
+  pretty (TypeError typ term) = printf "'%s' is not of type '%s'" (pretty term)
+    (pretty typ)
+  pretty (TypeMismatch typ1 typ2) 
+    = printf "Type '%s' is different from type '%s'" (pretty typ1) (pretty typ2)
+  pretty (ReadBackTypeError typ val) 
+    = printf "Cannot readback '%s' of type '%s'" (pretty val) (pretty typ)
+  pretty (CannotApplyTerm term val) = 
+    printf "Cannot apply term '%s' to '%s'" (pretty val) (pretty term)
+  pretty (TermApplicationError val) = 
+    printf "Cannot apply term '%s'" (pretty val)
+  pretty (CannotSolveMeta name) = 
+    printf "Meta-variable '%s' is unsolvable"  (pretty name)
+  pretty (RecursiveMeta name) 
+    = printf "Meta-variable '%s' is recursive" (pretty name)
+  pretty (Todo msg) = printf "todo(%s)" msg

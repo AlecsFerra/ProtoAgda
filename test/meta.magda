@@ -2,4 +2,25 @@ def id : Pi(A : U) -> A -> A
   = lambda _ a . a
 
 def idt : Pi(A : U) -> A -> A
-  = lambda a b . id _ b
+  = lambda _ b . id _ b
+
+display idt
+
+def idtt : Pi (A : U) -> A -> A
+  = lambda _ . idt _
+
+display idtt
+
+def pippotto : Pi (A : U) -> A -> A
+  = id _ id
+
+display pippotto
+
+def uzzio : Pi (B : U) -> B
+  = _
+display uzzio
+
+def idaga : Pi (A : U) -> A -> A
+  = λ _ a . _
+
+display idaga
