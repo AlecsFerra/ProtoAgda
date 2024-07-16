@@ -11,7 +11,7 @@ def idTy : 𝒰
 def id : idTy
   = λ _ x. x
 
-def idAgain : id _ idTy
+def idAgain : (id _ id) _ idTy
   = λ _ x. id _ x
 
 display idAgain
@@ -19,8 +19,8 @@ display idAgain
 
 Output:
 ```
-idAgain = λ _. λ x. ((id ?17) x) : Π (X : 𝒰) -> Π (_ : X) -> X
-Meta context: ?13: 𝒰,?17: _
+idAgain = λ _. λ x. ((id ?26) x) : Π (X : 𝒰) -> Π (_ : X) -> X
+Meta context: ?14: Π (X : 𝒰) -> Π (_ : X) -> X,?22: 𝒰,?26: _
 ```
 
 The engine was able to sove the two metavariables :)
